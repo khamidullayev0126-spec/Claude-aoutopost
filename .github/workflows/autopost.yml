@@ -1,0 +1,49 @@
+name: Claude maslahatlar autopost
+
+on:
+  schedule:
+    # 11:50 UTC = 16:50 Toshkent vaqti (UTC+5). Preview 16:50 da, nashr ~17:00 da.
+    - cron: "50 11 * * *"
+  workflow_dispatch:
+    inputs:
+      wait_minutes:
+        description: "Tugma kutish daqiqalari (sinov uchun 2 qo'ying)"
+        default: "10"
+      force_audio:
+        description: "Audio ham yuborilsin (true/false)"
+        default: "false"
+      force_text_only:
+        description: "Faqat matn (true/false)"
+        default: "false"
+
+concurrency:
+  group: autopost
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Bog'liqliklarni o'rnatish
+        run: pip install -r requirements.txt
+
+      - name: Postni tayyorlash va chiqarish
+        run: python run_once.py
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+          CHANNEL_ID: "@AbdulhamidDasturchi_kundaligi"
+          TIMEZONE: "Asia/Tashkent"
+          WAIT_MINUTES: ${{ github.event.inputs.wait_minutes || '10' }}
+          FORCE_AUDIO: ${{ github.event.inputs.force_audio || 'false' }}
+          FORCE_TEXT_ONLY: ${{ github.event.inputs.force_text_only || 'false' }}
