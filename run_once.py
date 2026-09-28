@@ -72,6 +72,26 @@ def send_audio(chat_id, audio_bytes, title, caption=None):
     return tg("sendAudio", data, files={"audio": ("maslahat.mp3", audio_bytes)})
 
 
+
+# ---------------------------------------------------------------- Qayta urinish
+_TRANSIENT_MARKERS = ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "500", "504", "timed out", "Timeout", "Connection")
+
+
+def with_retry(fn, *args, label: str = "", attempts: int = 6, base_delay: int = 10):
+    """Vaqtincha xatolarda (503 'model band', 429, tarmoq) qayta uriniladi."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn(*args)
+        except Exception as error:
+            text = str(error)
+            transient = any(marker in text for marker in _TRANSIENT_MARKERS)
+            if not transient or attempt == attempts:
+                raise
+            delay = base_delay * attempt
+            log.warning("%s vaqtincha xato (%s/%s): %s | %s soniyadan keyin qayta uriniladi",
+                        label, attempt, attempts, text[:160], delay)
+            time.sleep(delay)
+
 # ---------------------------------------------------------------- Kontent
 def strip_html(text: str) -> str:
     return html.unescape(re.sub(r"<[^>]+>", "", text))
@@ -80,9 +100,9 @@ def strip_html(text: str) -> str:
 def build_package(text_only: bool, want_audio: bool) -> dict:
     passed, last_reason, post, plain = False, "", None, ""
     for attempt in range(1, MAX_GENERATION_ATTEMPTS + 1):
-        post = generate_post()
+        post = with_retry(generate_post, label="Matn")
         plain = strip_html(post["post_html"])
-        passed, reason = check_post(plain)
+        passed, reason = with_retry(check_post, plain, label="QC")
         if passed:
             break
         last_reason = reason
@@ -97,12 +117,12 @@ def build_package(text_only: bool, want_audio: bool) -> dict:
     }
     if not text_only:
         try:
-            package["image_bytes"] = generate_image(post["image_prompt"])
+            package["image_bytes"] = with_retry(generate_image, post["image_prompt"], label="Rasm")
         except Exception:
             log.exception("Rasm generatsiya qilinmadi, rasmsiz davom etiladi")
     if want_audio:
         try:
-            package["audio_bytes"] = generate_audio(post["audio_script"])
+            package["audio_bytes"] = with_retry(generate_audio, post["audio_script"], label="Audio")
         except Exception:
             log.exception("Audio generatsiya qilinmadi, audiosiz davom etiladi")
     return package
