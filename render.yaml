@@ -1,1 +1,27 @@
-
+services:
+  - type: worker
+    name: claude-maslahatlar-autopost
+    runtime: python
+    region: frankfurt
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ADMIN_CHAT_ID
+        sync: false
+      - key: CHANNEL_ID
+        value: "@AbdulhamidDasturchi_kundaligi"
+      - key: TIMEZONE
+        value: "Asia/Tashkent"
+      - key: PUBLISH_HOUR
+        value: "17"
+      - key: PUBLISH_MINUTE
+        value: "0"
+      - key: PREVIEW_MINUTES_BEFORE
+        value: "10"
