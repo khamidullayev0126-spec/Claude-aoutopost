@@ -24,7 +24,8 @@ from datetime import date, datetime
 import pytz
 import requests
 
-from config import ADMIN_CHAT_ID, CHANNEL_ID, PREVIEW_MINUTES_BEFORE, TELEGRAM_BOT_TOKEN, TIMEZONE
+from config import (ADMIN_CHAT_ID, CHANNEL_ID, GEMINI_IMAGE_MODEL, PREVIEW_MINUTES_BEFORE,
+                    TELEGRAM_BOT_TOKEN, TIMEZONE)
 from content_gen import generate_post
 from image_gen import generate_image
 from audio_gen import generate_audio
@@ -84,13 +85,30 @@ def with_retry(fn, *args, label: str = "", attempts: int = 6, base_delay: int = 
             return fn(*args)
         except Exception as error:
             text = str(error)
-            transient = any(marker in text for marker in _TRANSIENT_MARKERS)
+            transient = (any(marker in text for marker in _TRANSIENT_MARKERS)
+                         and "limit: 0" not in text
+                         and "PerDay" not in text)
             if not transient or attempt == attempts:
                 raise
             delay = base_delay * attempt
             log.warning("%s vaqtincha xato (%s/%s): %s | %s soniyadan keyin qayta uriniladi",
                         label, attempt, attempts, text[:160], delay)
             time.sleep(delay)
+
+IMAGE_MODELS = list(dict.fromkeys([GEMINI_IMAGE_MODEL, "gemini-3.1-flash-lite-image"]))
+
+
+def make_image(prompt: str) -> bytes:
+    """Avval asosiy rasm modeli, bo'lmasa zaxira model sinab ko'riladi."""
+    last_error = None
+    for model in IMAGE_MODELS:
+        try:
+            return with_retry(generate_image, prompt, model, label=f"Rasm ({model})")
+        except Exception as error:
+            last_error = error
+            log.warning("Rasm modeli %s ishlamadi: %s", model, str(error)[:160])
+    raise last_error
+
 
 # ---------------------------------------------------------------- Kontent
 def strip_html(text: str) -> str:
@@ -117,7 +135,7 @@ def build_package(text_only: bool, want_audio: bool) -> dict:
     }
     if not text_only:
         try:
-            package["image_bytes"] = with_retry(generate_image, post["image_prompt"], label="Rasm")
+            package["image_bytes"] = make_image(post["image_prompt"])
         except Exception:
             log.exception("Rasm generatsiya qilinmadi, rasmsiz davom etiladi")
     if want_audio:
@@ -224,6 +242,28 @@ def main() -> None:
     log.info("Boshlandi: text_only=%s, audio=%s, kutish=%s daqiqa", text_only, want_audio, wait_minutes)
 
     tg("deleteWebhook", {})
+
+    bot_info = tg("getMe", {})
+    log.info("Bot: @%s (ID: %s) | ADMIN_CHAT_ID (secret): %s",
+              bot_info.get("username"), bot_info["id"], ADMIN_CHAT_ID)
+    if ADMIN_CHAT_ID == bot_info["id"]:
+        raise RuntimeError(
+            f"ADMIN_CHAT_ID ({ADMIN_CHAT_ID}) aynan bu botning o'z ID'siga teng — bu noto'g'ri. "
+            f"GitHub Secret'da hali ham eski/bot ID saqlanyapti, u yangilanmagan. "
+            f"@userinfobot'dan olingan SHAXSIY ID'ni qayta kiritib, 'Update secret'ni bosganingizga "
+            f"ishonch hosil qiling."
+        )
+
+    try:
+        send_text(ADMIN_CHAT_ID, "⏳ Post tayyorlanmoqda, taxminan 1-3 daqiqa kuting...")
+    except RuntimeError as error:
+        if "bot" in str(error) and "403" in str(error):
+            raise RuntimeError(
+                f"Telegram ADMIN_CHAT_ID={ADMIN_CHAT_ID}'ga yoza olmadi (bot ID: {bot_info['id']}). "
+                f"Ehtimol siz botga hali /start bosmagansiz, yoki ADMIN_CHAT_ID guruh/kanal ID'si "
+                f"(bunday holda manfiy raqam bo'ladi), sizning shaxsiy ID'ingiz emas."
+            ) from error
+        raise
     offset = latest_offset()
 
     package = build_package(text_only, want_audio)
