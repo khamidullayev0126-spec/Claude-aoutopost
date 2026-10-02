@@ -78,7 +78,7 @@ def send_audio(chat_id, audio_bytes, title, caption=None):
 _TRANSIENT_MARKERS = ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "500", "504", "timed out", "Timeout", "Connection")
 
 
-def with_retry(fn, *args, label: str = "", attempts: int = 6, base_delay: int = 10):
+def with_retry(fn, *args, label: str = "", attempts: int = 10, base_delay: int = 10, max_delay: int = 120):
     """Vaqtincha xatolarda (503 'model band', 429, tarmoq) qayta uriniladi."""
     for attempt in range(1, attempts + 1):
         try:
@@ -90,7 +90,7 @@ def with_retry(fn, *args, label: str = "", attempts: int = 6, base_delay: int = 
                          and "PerDay" not in text)
             if not transient or attempt == attempts:
                 raise
-            delay = base_delay * attempt
+            delay = min(base_delay * attempt, max_delay)
             log.warning("%s vaqtincha xato (%s/%s): %s | %s soniyadan keyin qayta uriniladi",
                         label, attempt, attempts, text[:160], delay)
             time.sleep(delay)
